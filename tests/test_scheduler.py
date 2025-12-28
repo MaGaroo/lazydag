@@ -1,8 +1,20 @@
 from lazydag.core import Process
 from lazydag.collections import ListObjectCollection
 from lazydag.scheduler import Scheduler
+import random
 
-class MockProcess(Process):
+class GeneratorProcess(Process):
+    inputs = []
+    outputs = ["out"]
+    def __init__(self, name):
+        super().__init__(name)
+        self.next_val = None
+
+    def poll(self, out):
+        if self.next_val is not None:
+            out.push(self.next_val)
+
+class ProxyProcess(Process):
     inputs = ["inp"]
     outputs = ["out"]
     def __init__(self, name):
@@ -13,9 +25,10 @@ class MockProcess(Process):
     def poll(self, inp, out):
         self.run_count += 1
         if len(inp) > 0:
-            self.last_input_val = inp.get(len(inp)-1)
+            last_val = inp.get(len(inp)-1)
+            self.last_input_val = last_val
             # Propagate
-            out.push(self.last_input_val)
+            out.push(last_val)
 
 def test_dependency_trigger(tmp_path):
     scheduler = Scheduler()
@@ -29,43 +42,34 @@ def test_dependency_trigger(tmp_path):
     scheduler.register_collection(c1)
     scheduler.register_collection(c2)
     
-    proc = MockProcess("p1")
-    scheduler.register_process(proc, inputs={"inp": c1}, outputs={"out": c2})
+    p0 = GeneratorProcess("p0")
+    scheduler.register_process(p0, inputs={}, outputs={"out": c1})
+
+    p1 = ProxyProcess("p1")
+    scheduler.register_process(p1, inputs={"inp": c1}, outputs={"out": c2})
     
     # Trigger
-    assert proc.run_count == 0
-    c1.insert(0, 42)
-    
+    assert p1.run_count == 0
+    p0.next_val = 42
+
     # Trigger scheduler step
     scheduler.step()
     
-    assert proc.run_count == 1
-    assert proc.last_input_val == 42
+    assert p1.run_count == 1
+    assert p1.last_input_val == 42
     assert c2.get(0) == 42
     
-    # c2.changed() will be False because step() saves changes
-    # assert c2.changed() <- REMOVED
+    p0.next_val = None
+    assert not scheduler.step()
+    assert p1.run_count == 1 # Unchanged
 
-    
-    # Another step, c1 unchanged.
-    # Current behavior: poll runs only if inputs changed.
-    # c1 hasn't changed since last step?
-    # Wait, c1.insert added to changelog.
-    # step() ran poll. poll finished.
-    # step() saves changed collections.
-    # c1.save() called implicitly? Yes, Step 4 of scheduler step.
-    # So c1.changelog is cleared. c1.changed() -> False.
-    # Next step: changed() is False. poll() not called.
-    
-    scheduler.step()
-    assert proc.run_count == 1 # Unchanged
+    p0.next_val = 43
+    assert scheduler.step()
 
-    c1.insert(1, 43)
-    scheduler.step()
-    
-    assert proc.run_count == 2
-    assert proc.last_input_val == 43
+    assert p1.run_count == 2
+    assert p1.last_input_val == 43
     assert c2.get(1) == 43
+
 
 def test_chained_dependency(tmp_path):
     scheduler = Scheduler()
@@ -80,22 +84,26 @@ def test_chained_dependency(tmp_path):
     scheduler.register_collection(c2)
     scheduler.register_collection(c3)
     
-    p1 = MockProcess("p1")
-    p2 = MockProcess("p2")
+    p0 = GeneratorProcess("p0")
+    p1 = ProxyProcess("p1")
+    p2 = ProxyProcess("p2")
     
+    scheduler.register_process(p0, inputs={}, outputs={"out": c1})
     scheduler.register_process(p1, inputs={"inp": c1}, outputs={"out": c2})
     scheduler.register_process(p2, inputs={"inp": c2}, outputs={"out": c3})
     
     # Trigger chain
-    c1.insert(0, 100)
+    p0.next_val = 100
     
     # Step 1: p1 sees change, runs. c2 updates. c1 and c2 saved.
     scheduler.step()
     
     assert p1.run_count == 1
     # Does p2 run in the same step?
-    # Topological sort: p1 -> p2.
-    # p1 runs first. Updates c2.
+    # Topological sort: p0 -> p1 -> p2.
+    # p0 runs first. Updates c1.
+    # c1 key "1" inserted. c1.changed() -> True.
+    # p1 checked. Input c1 changed? True. p1 runs.
     # c2 key "1" inserted. c2.changed() -> True.
     # p2 checked. Input c2 changed? True. p2 runs.
     # Yes! In one step, changes propagate.

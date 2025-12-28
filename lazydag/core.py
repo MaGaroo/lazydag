@@ -53,6 +53,10 @@ class ObjectCollection(ABC):
         pass
 
 
+    def __str__(self):
+        return f"{self.__class__.__name__}<{self.name}>"
+
+
 class Process(ABC):
     """
     Base class for processes.

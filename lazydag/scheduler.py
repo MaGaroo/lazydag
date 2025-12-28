@@ -73,9 +73,10 @@ class Scheduler:
             
         self._topology = topo_order
         
-    def step(self):
+    def step(self) -> bool:
         """
         Runs one iteration of the topological process loop.
+        Returns True if any collection was changed.
         """
         if not self._topology:
             self._compute_topology()
@@ -93,13 +94,16 @@ class Scheduler:
             if inputs_changed or no_inputs:
                  # Prepare args
                 kwargs = self._get_process_args(proc_name)
-                
                 proc.poll(**kwargs)
         
         # 4. Save changed collections
+        changed = False
         for col in self.collections.values():
             if col.changed():
                 col.save()
+                changed = True
+
+        return changed
 
     def start(self):
         # 1. Compute topology
