@@ -23,6 +23,8 @@ class ProxyProcess(Process):
         self.last_input_val = None
 
     def poll(self, inp, out):
+        if not inp.changed():
+            return
         self.run_count += 1
         if len(inp) > 0:
             last_val = inp.get(len(inp)-1)

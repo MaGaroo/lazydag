@@ -39,7 +39,9 @@ class FilterProcess(Process):
         super().__init__(name)
         self.processed_idx = 0
 
-    def poll(self, input_nums, even_nums, odd_nums):
+    def poll(self, input_nums: ListObjectCollection, even_nums: ListObjectCollection, odd_nums: ListObjectCollection):
+        if not input_nums.changed():
+            return
         # Process new items from input_nums
         even_ptr = 0
         odd_ptr = 0
@@ -70,6 +72,8 @@ class MapProcess(Process):
         self.processed_idx = 0
 
     def poll(self, input_nums, output_nums):
+        if not input_nums.changed():
+            return
         ptr = 0
         for num in input_nums:
             if ptr < len(output_nums):
@@ -90,4 +94,6 @@ class PrintProcess(Process):
         self.processed_idx = 0
 
     def poll(self, input_nums):
+        if not input_nums.changed():
+            return
         print(self.name, ":", ",".join(map(str, input_nums)))

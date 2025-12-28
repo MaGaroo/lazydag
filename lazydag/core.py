@@ -76,7 +76,7 @@ class Process(ABC):
         Triggered when inputs change.
         """
         pass
-    
+
     def run_daemon(self, **kwargs):
         """
         Optional method for daemon processes.

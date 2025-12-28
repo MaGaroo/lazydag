@@ -1,20 +1,25 @@
+from collections import defaultdict
+from concurrent.futures import FIRST_COMPLETED, wait, ThreadPoolExecutor
 import threading
 import time
-from typing import Dict, List, Set, Any
-from collections import defaultdict
+from typing import Dict, List, Set
 from .core import Process, ObjectCollection
 
 class Scheduler:
-    def __init__(self):
+    def __init__(self, parallelization: int = 4):
         self.collections: Dict[str, ObjectCollection] = {}
         self.processes: Dict[str, Process] = {}
         self.daemons: List[threading.Thread] = []
         self.process_inputs: Dict[str, Dict[str, List[ObjectCollection]]] = {}
         self.process_outputs: Dict[str, Dict[str, List[ObjectCollection]]] = {}
-        self._topology: List[str] = [] # List of process names in topological order
+        self.thread_pool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=parallelization)
+        self.collection_consumers: Dict[str, List[str]] = {}
 
     def register_collection(self, collection: ObjectCollection):
+        if collection.name in self.collections:
+            raise ValueError(f"Collection {collection.name} already registered")
         self.collections[collection.name] = collection
+        self.collection_consumers[collection.name] = []
 
     def register_process(self, process: Process, inputs: Dict[str, ObjectCollection], outputs: Dict[str, ObjectCollection]):
         if process.name in self.processes:
@@ -22,81 +27,34 @@ class Scheduler:
         self.processes[process.name] = process
         self.process_inputs[process.name] = inputs or {}
         self.process_outputs[process.name] = outputs or {}
+        for col in inputs.values():
+            if col.name not in self.collections:
+                raise ValueError(f"Collection {col.name} not registered")
+            self.collection_consumers[col.name].append(process.name)
 
-    def _compute_topology(self):
-        """
-        Computes the topological order of processes based on data dependencies.
-        A depends on B if B produces a collection that A inputs.
-        """
-        # 1. Map collections to their producers
-        producer: Dict[str, str] = dict() # collection_name -> process_name
-        
-        for name, proc in self.processes.items():
-            for out_col in self.process_outputs[name].values():
-                if out_col in producer:
-                    raise ValueError(f"Collection {out_col} is produced by multiple processes: {producer[out_col]} and {name}")
-                producer[out_col] = name
-        
-        # 2. Build dependency graph (Adjacency list: consumer -> [producers])
-        proc_dependencies: Dict[str, Set[str]] = {name: set() for name in self.processes}
-        
-        for name, proc in self.processes.items():
-            for in_col in self.process_inputs[name].values():
-                if in_col not in producer:
-                    raise ValueError(f"Collection {in_col} is not produced by any process")
-                producer_name = producer[in_col]
-                # Self-dependency shouldn't happen in DAG, but if it does, ignore or handle?
-                if producer_name != name:
-                    proc_dependencies[name].add(producer_name)
-        
-        # 3. Topological Sort (Kahn's algorithm)
-        proc_dependants = defaultdict(list) # producer -> [consumers]
-        for consumer, producers_in_deps in proc_dependencies.items():
-            for producer in producers_in_deps:
-                proc_dependants[producer].append(consumer)
-                
-        in_degree = {name: len(deps) for name, deps in proc_dependencies.items()}
-        queue = [name for name, deg in in_degree.items() if deg == 0]
-        topo_order = []
-
-        while queue:
-            u = queue.pop(0)
-            topo_order.append(u)
-            
-            for v in proc_dependants[u]:
-                in_degree[v] -= 1
-                if in_degree[v] == 0:
-                    queue.append(v)
-        
-        if len(topo_order) != len(self.processes):
-            raise ValueError("Cycle detected in process dependencies")
-            
-        self._topology = topo_order
-        
     def step(self) -> bool:
         """
         Runs one iteration of the topological process loop.
         Returns True if any collection was changed.
         """
-        if not self._topology:
-            self._compute_topology()
+        process_pending_inputs = {name: len(self.process_inputs[name]) for name in self.processes}
+        can_poll = lambda p: process_pending_inputs[p] == 0
+        poll = lambda p: self.thread_pool.submit(self._poll_process, p)
 
-        # Iterate over topological order
-        for proc_name in self._topology:
-            proc = self.processes[proc_name]
-            
-            # Check if triggered
-            # "if one of its inputs had changed, we will trigger it. Otherwise, not."
-            # TODO: find a better way to handle daemons
-            inputs_changed = any(inp_col.changed() for inp_col in self.process_inputs[proc_name].values())
-            no_inputs = len(self.process_inputs[proc_name]) == 0
-            
-            if inputs_changed or no_inputs:
-                 # Prepare args
-                kwargs = self._get_process_args(proc_name)
-                proc.poll(**kwargs)
+        pending_processes = set()
+        for proc_name, proc in self.processes.items():
+            if can_poll(proc_name):
+                pending_processes.add(poll(proc_name))
+        while pending_processes:
+            done, pending_processes = wait(pending_processes, return_when=FIRST_COMPLETED)
+            for future in done:
+                proc_name = future.result()
+                for out_col in self.process_outputs[proc_name].values():
+                    for consumer in self.collection_consumers[out_col.name]:
+                        process_pending_inputs[consumer] -= 1
+                        if can_poll(consumer):
+                            pending_processes.add(poll(consumer))
         
-        # 4. Save changed collections
         changed = False
         for col in self.collections.values():
             if col.changed():
@@ -106,10 +64,7 @@ class Scheduler:
         return changed
 
     def start(self):
-        # 1. Compute topology
-        self._compute_topology()
-        
-        # 2. Start daemons
+        # Start daemons
         for name, proc in self.processes.items():
             if proc.has_daemon:
                 # Pass inputs/outputs as kwargs?
@@ -122,10 +77,11 @@ class Scheduler:
                 t.start()
                 self.daemons.append(t)
         
-        # 3. Main Loop
+        # Main Loop
         try:
             while True:
-                self.step()
+                if self.step():
+                    print("-=-=-=-=-=-=-=-=-=-")
                 
                 # Sleep to avoid CPU spin? The user didn't specify.
                 # If we have run_daemons producing data, we want to pick it up fast.
@@ -134,6 +90,17 @@ class Scheduler:
                 
         except KeyboardInterrupt:
             pass
+
+    def _poll_process(self, proc_name: str):
+        """
+        Poll a process and return the name of the process.
+        """
+        proc = self.processes[proc_name]
+        args = self._get_process_args(proc_name)
+        proc.poll(**args)
+
+        # Return the name of the process to track process in threadpool futures
+        return proc_name
 
     def _get_process_args(self, proc_name: str):
         kwargs = {}
