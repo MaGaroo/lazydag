@@ -1,15 +1,20 @@
 [tool.poetry]
 name = "lazydag"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lazy data processing pipeline framework"
 authors = ["Majid Garoosi <amoomajid99@gmail.com>"]
 readme = "README.md"
+packages = [{ include = "lazydag" }]
 
 [tool.poetry.dependencies]
 python = "^3.12"
 pytest = "^9.0.2"
-
+typer = "^0.21.0"
+pyyaml = "^6.0.3"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+lazydag = "lazydag.cli.main:main"

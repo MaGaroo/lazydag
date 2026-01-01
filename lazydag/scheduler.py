@@ -2,80 +2,21 @@ from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, wait, ThreadPoolExecutor
 import threading
 import time
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Iterable
 from .core import Process, ObjectCollection
+from .pipeline import Pipeline
 
 class Scheduler:
-    def __init__(self, parallelization: int = 4):
-        self.collections: Dict[str, ObjectCollection] = {}
-        self.processes: Dict[str, Process] = {}
+    def __init__(self, pipeline: Pipeline, processes: Iterable[Process], collections: Iterable[ObjectCollection], parallelization: int = 4):
+        self.pipeline: Pipeline = pipeline
+        self.collections: Dict[str, ObjectCollection] = {col.name: col for col in collections}
+        self.processes: Dict[str, Process] = {proc.name: proc for proc in processes}
         self.daemons: List[threading.Thread] = []
-        self.process_inputs: Dict[str, Dict[str, List[ObjectCollection]]] = {}
-        self.process_outputs: Dict[str, Dict[str, List[ObjectCollection]]] = {}
         self.thread_pool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=parallelization)
-        self.collection_consumers: Dict[str, List[str]] = {}
-
-    def register_collection(self, collection: ObjectCollection):
-        if collection.name in self.collections:
-            raise ValueError(f"Collection {collection.name} already registered")
-        self.collections[collection.name] = collection
-        self.collection_consumers[collection.name] = []
-
-    def register_process(self, process: Process, inputs: Dict[str, ObjectCollection], outputs: Dict[str, ObjectCollection]):
-        if process.name in self.processes:
-            raise ValueError(f"Process {process.name} already registered")
-        self.processes[process.name] = process
-        self.process_inputs[process.name] = inputs or {}
-        self.process_outputs[process.name] = outputs or {}
-        for col in inputs.values():
-            if col.name not in self.collections:
-                raise ValueError(f"Collection {col.name} not registered")
-            self.collection_consumers[col.name].append(process.name)
-
-    def step(self) -> bool:
-        """
-        Runs one iteration of the topological process loop.
-        Returns True if any collection was changed.
-        """
-        process_pending_inputs = {name: len(self.process_inputs[name]) for name in self.processes}
-        can_poll = lambda p: process_pending_inputs[p] == 0
-        poll = lambda p: self.thread_pool.submit(self._poll_process, p)
-
-        pending_processes = set()
-        for proc_name, proc in self.processes.items():
-            if can_poll(proc_name):
-                pending_processes.add(poll(proc_name))
-        while pending_processes:
-            done, pending_processes = wait(pending_processes, return_when=FIRST_COMPLETED)
-            for future in done:
-                proc_name = future.result()
-                for out_col in self.process_outputs[proc_name].values():
-                    for consumer in self.collection_consumers[out_col.name]:
-                        process_pending_inputs[consumer] -= 1
-                        if can_poll(consumer):
-                            pending_processes.add(poll(consumer))
-        
-        changed = False
-        for col in self.collections.values():
-            if col.changed():
-                col.save()
-                changed = True
-
-        return changed
+        self._assert_pipeline_consistent()
 
     def start(self):
-        # Start daemons
-        for name, proc in self.processes.items():
-            if proc.has_daemon:
-                # Pass inputs/outputs as kwargs?
-                # "It has read access to its outputs... but we guarantee it will not change it."
-                # We pass the same collections.
-                kwargs = self._get_process_args(name)
-                
-                # Daemon thread
-                t = threading.Thread(target=proc.run_daemon, kwargs=kwargs, name=f"daemon-{name}", daemon=True)
-                t.start()
-                self.daemons.append(t)
+        self.start_daemons()
         
         # Main Loop
         try:
@@ -91,6 +32,67 @@ class Scheduler:
         except KeyboardInterrupt:
             pass
 
+    def step(self) -> bool:
+        """
+        Runs one iteration of the topological process loop.
+        Returns True if any collection was changed.
+        """
+        process_pending_inputs = {name: len(self.pipeline.process_inputs(name)) for name in self.processes}
+        ready_to_poll = lambda p: process_pending_inputs[p] == 0
+        poll = lambda p: self.thread_pool.submit(self._poll_process, p)
+
+        pending_processes = set()
+        for proc_name, proc in self.processes.items():
+            if ready_to_poll(proc_name):
+                pending_processes.add(poll(proc_name))
+        while pending_processes:
+            done, pending_processes = wait(pending_processes, return_when=FIRST_COMPLETED)
+            for future in done:
+                proc_name = future.result()
+                for out_col in self.pipeline.process_outputs(proc_name).values():
+                    for consumer in self.pipeline.collection_consumers(out_col):
+                        process_pending_inputs[consumer] -= 1
+                        if ready_to_poll(consumer):
+                            pending_processes.add(poll(consumer))
+
+        changed = False
+        for col in self.collections.values():
+            if col.changed():
+                col.save()
+                changed = True
+
+        return changed
+
+    def start_daemons(self):
+        for name, proc in self.processes.items():
+            if proc.has_daemon:
+                # Pass inputs/outputs as kwargs?
+                # "It has read access to its outputs... but we guarantee it will not change it."
+                # We pass the same collections.
+                kwargs = self._get_process_args(name)
+
+                # Daemon thread
+                t = threading.Thread(target=proc.run_daemon, kwargs=kwargs, name=f"daemon-{name}", daemon=True)
+                t.start()
+                self.daemons.append(t)
+        return
+
+    def _assert_pipeline_consistent(self):
+        """
+        Assert that the pipeline is consistent with the processes and collections.
+        """
+        assert set(self.processes.keys()) == set(self.pipeline.processes.keys()), \
+            str(self.processes.keys()) + " != " + str(self.pipeline.processes.keys())
+        for proc_name, proc in self.processes.items():
+            assert proc_name == proc.name
+            assert set(proc.inputs) == set(self.pipeline.process_inputs(proc_name).keys())
+            assert set(proc.outputs) == set(self.pipeline.process_outputs(proc_name).keys())
+
+        assert len(self.collections) == len(self.pipeline.collections)
+        for col_name, col in self.collections.items():
+            assert col_name == col.name
+            assert col_name in self.pipeline.collections
+
     def _poll_process(self, proc_name: str):
         """
         Poll a process and return the name of the process.
@@ -104,14 +106,8 @@ class Scheduler:
 
     def _get_process_args(self, proc_name: str):
         kwargs = {}
-        for inp, col in self.process_inputs[proc_name].items():
-            kwargs[inp] = col
-        for out, col in self.process_outputs[proc_name].items():
-            kwargs[out] = col
+        for input_port, col_name in self.pipeline.process_inputs(proc_name).items():
+            kwargs[input_port] = self.collections[col_name]
+        for output_port, col_name in self.pipeline.process_outputs(proc_name).items():
+            kwargs[output_port] = self.collections[col_name]
         return kwargs
-
-# Global singleton
-_runtime = Scheduler()
-
-def get_runtime():
-    return _runtime

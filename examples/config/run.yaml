@@ -1,0 +1,3 @@
+project_name: lazydag-example
+source_root: .
+data_root: ./data
