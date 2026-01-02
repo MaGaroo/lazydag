@@ -1,27 +1,19 @@
-import importlib
-import os
-import sys
 import typer
-from lazydag.pipeline import Pipeline
-from lazydag.configs import RunConfig
-from lazydag.scheduler import Scheduler
-
+from lazydag.core.misc import get_processes_and_objects
+from lazydag.core.pipeline import Pipeline
+from lazydag.core.scheduler import Scheduler
 
 run_app = typer.Typer()
 
 
 @run_app.command()
-def run(py_module: str = "pipeline", project_config: str = "./config/run.yaml"):
-    proj_cfg = RunConfig.from_file(project_config)
-    proj_cfg.scaffold_data_dir()
-    pipeline = Pipeline.from_yaml_file(proj_cfg.get_pipeline_path())
-    sys.path.insert(0, os.getcwd())
-    module = importlib.import_module(py_module)
-    
-    processes = module.processes
-    collections = module.collections
-    
-    scheduler = Scheduler(pipeline, processes, collections)
+def run(ctx: typer.Context):
+    pipeline: Pipeline = ctx.obj["pipeline"]
+    if pipeline is None:
+        typer.echo("Error: pipeline not found, have you built it?")
+        return
+    processes, objects = get_processes_and_objects()
+    scheduler = Scheduler(pipeline, processes, objects)
     scheduler.start()
 
 

@@ -1,7 +1,9 @@
+from pathlib import Path
+
 PROJECT_NAME = "lazydag-example"
-DATA_ROOT = "./data"
-SOURCE_ROOT = "."
+DATA_ROOT = Path("./data")
+PY_MODULE = "pipeline"
 
 FS_OBJECTS = {
-    "save_dir": "./data/objects",
+    "save_dir": DATA_ROOT / "objects",
 }

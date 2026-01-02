@@ -1,27 +1,27 @@
-from lazydag.collections import ListObjectCollection
-import time
-import random
+from lazydag.contrib.objects import FSListObject
+from lazydag.core.process import Process
 import queue
-from lazydag.core import Process
+import random
+import time
 
 class RandomNumberGeneratorProcess(Process):
     inputs = []
     outputs = ["num_list"]
     has_daemon = True
-    
+
     def __init__(self, name):
         super().__init__(name)
         self.queue = queue.Queue()
 
-    def run_daemon(self, num_list: ListObjectCollection):
+    def run_daemon(self, num_list: FSListObject):
         # Generate some numbers
         while True:
             val = random.randint(1, 100)
             self.queue.put(val)
             time.sleep(0.5)
-            
-    def poll(self, num_list: ListObjectCollection):
-        # Move items from queue to output collection
+
+    def poll(self, num_list: FSListObject):
+        # Move items from queue to output object
         while not self.queue.empty():
             try:
                 val = self.queue.get_nowait()
@@ -34,12 +34,12 @@ class RandomNumberGeneratorProcess(Process):
 class FilterProcess(Process):
     inputs = ["input_nums"]
     outputs = ["even_nums", "odd_nums"]
-    
+
     def __init__(self, name):
         super().__init__(name)
         self.processed_idx = 0
 
-    def poll(self, input_nums: ListObjectCollection, even_nums: ListObjectCollection, odd_nums: ListObjectCollection):
+    def poll(self, input_nums: FSListObject, even_nums: FSListObject, odd_nums: FSListObject):
         if not input_nums.changed():
             return
         # Process new items from input_nums
@@ -66,7 +66,7 @@ class FilterProcess(Process):
 class MapProcess(Process):
     inputs = ["input_nums"]
     outputs = ["output_nums"]
-    
+
     def __init__(self, name):
         super().__init__(name)
         self.processed_idx = 0
@@ -88,7 +88,7 @@ class MapProcess(Process):
 class PrintProcess(Process):
     inputs = ["input_nums"]
     outputs = []
-    
+
     def __init__(self, name):
         super().__init__(name)
         self.processed_idx = 0

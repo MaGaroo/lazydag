@@ -1,13 +1,14 @@
-from lazydag.collections import ListObjectCollection
+from lazydag.contrib.objects import FSListObject
+from pathlib import Path
 
 # These classes are defined by the user
 from processes import MapProcess, FilterProcess, RandomNumberGeneratorProcess, PrintProcess
 
 # Use local paths for testing
-rand_nums = ListObjectCollection(name="rand_nums", save_path="./data/randoms")
-evens = ListObjectCollection(name="evens", save_path="./data/evens")
-odds = ListObjectCollection(name="odds", save_path="./data/odds")
-results = ListObjectCollection(name="results", save_path="./data/results")
+rand_nums = FSListObject(name="rand_nums")
+evens = FSListObject(name="evens")
+odds = FSListObject(name="odds")
+results = FSListObject(name="results")
 
 random_gen_process = RandomNumberGeneratorProcess(name='random_gen')
 filter_process = FilterProcess(name='filter_numbers')
@@ -26,7 +27,7 @@ processes = [
     print_odds_process,
     print_results_process,
 ]
-collections = [
+objects = [
     rand_nums,
     evens,
     odds,

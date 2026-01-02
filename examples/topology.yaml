@@ -1,0 +1,32 @@
+processes:
+    random_gen:
+        outputs:
+            num_list: rand_nums
+    filter_numbers:
+        inputs:
+            input_nums: rand_nums
+        outputs:
+            even_nums: evens
+            odd_nums: odds
+    map_numbers:
+        inputs:
+            input_nums: rand_nums
+        outputs:
+            output_nums: results
+    print_numbers:
+        inputs:
+            input_nums: rand_nums
+    print_evens:
+        inputs:
+            input_nums: evens
+    print_odds:
+        inputs:
+            input_nums: odds
+    print_results:
+        inputs:
+            input_nums: results
+objects:
+    - rand_nums
+    - evens
+    - odds
+    - results
