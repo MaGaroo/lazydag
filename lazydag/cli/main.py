@@ -2,18 +2,21 @@ import os
 import sys
 import typer
 
-from lazydag.cli.topology import topology
-from lazydag.cli.run import run_app
 from lazydag.conf import settings
 from lazydag.core.misc import scaffold_data_dir
 from lazydag.core.pipeline import Pipeline
 from lazydag.core.paths import get_pipeline_path
 
+from lazydag.cli.topology import topology_app
+from lazydag.cli.run import run_app
+from lazydag.cli.appless_commands import start_project
+
 
 def main():
     app = typer.Typer()
-    app.add_typer(topology, name="topology", callback=callback)
+    app.add_typer(topology_app, name="topology", callback=callback)
     app.add_typer(run_app, name="run", callback=callback)
+    app.command()(start_project)
     app()
 
 

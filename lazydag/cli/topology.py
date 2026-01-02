@@ -6,10 +6,11 @@ from lazydag.core.pipeline import Pipeline
 from lazydag.core.paths import get_pipeline_path
 from lazydag.cli.utils import get_object_by_name
 
-topology = typer.Typer()
+
+topology_app = typer.Typer()
 
 
-@topology.command()
+@topology_app.command()
 def add_process(ctx: typer.Context, process_name: str, inputs: List[str] = [], outputs: List[str] = []):
     pipeline: Pipeline = ctx.obj["pipeline"]
     inputs: Dict[str, str] = {inp.split(":")[0]: inp.split(":")[1] for inp in inputs}
@@ -18,14 +19,14 @@ def add_process(ctx: typer.Context, process_name: str, inputs: List[str] = [], o
     pipeline.to_yaml_file(get_pipeline_path())
 
 
-@topology.command()
+@topology_app.command()
 def remove_process(ctx: typer.Context, process_name: str):
     pipeline: Pipeline = ctx.obj["pipeline"]
     pipeline.remove_process(process_name)
     pipeline.to_yaml_file(get_pipeline_path())
 
 
-@topology.command()
+@topology_app.command()
 def add_object(ctx: typer.Context, object_name: str):
     pipeline: Pipeline = ctx.obj["pipeline"]
     pipeline.add_object(object_name)
@@ -35,7 +36,7 @@ def add_object(ctx: typer.Context, object_name: str):
     object.on_add_to_pipeline()
 
 
-@topology.command()
+@topology_app.command()
 def remove_object(ctx: typer.Context, object_name: str):
     pipeline: Pipeline = ctx.obj["pipeline"]
     pipeline.remove_object(object_name)
@@ -45,7 +46,7 @@ def remove_object(ctx: typer.Context, object_name: str):
     object.on_remove_from_pipeline()
 
 
-@topology.command()
+@topology_app.command()
 def from_yaml(ctx: typer.Context, yaml_addr: Path):
     if not yaml_addr.exists():
         typer.echo(f"Error: topology file {yaml_addr} does not exist")
@@ -65,7 +66,7 @@ def from_yaml(ctx: typer.Context, yaml_addr: Path):
         obj.on_add_to_pipeline()
 
 
-@topology.command()
+@topology_app.command()
 def validate(ctx: typer.Context):
     pipeline: Pipeline = ctx.obj["pipeline"]
     errors = pipeline.validate()
@@ -77,4 +78,4 @@ def validate(ctx: typer.Context):
 
 
 if __name__ == "__main__":
-    topology()
+    topology_app()
