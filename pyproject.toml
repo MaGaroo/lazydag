@@ -4,6 +4,7 @@ version = "0.2.0"
 description = "A lazy data processing pipeline framework"
 authors = ["Majid Garoosi <amoomajid99@gmail.com>"]
 readme = "README.md"
+license = "MIT"
 packages = [{ include = "lazydag" }]
 
 [tool.poetry.dependencies]
