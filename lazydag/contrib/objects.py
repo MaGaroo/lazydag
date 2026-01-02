@@ -1,9 +1,12 @@
+import json
 import copy
+from enum import Enum
 import os
 from pathlib import Path
 import pickle
+import re
 import shutil
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Iterable
 
 from lazydag.core.object import Object
 from lazydag.conf import settings
@@ -32,10 +35,6 @@ class FSBackedObject(Object):
 
 
 class FSListObject(FSBackedObject):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._changelog: List[Tuple[str, int, Any]] = []
-
     def _get_data_path(self) -> Path:
         return self.save_path / "data.pkl"
 
@@ -50,6 +49,7 @@ class FSListObject(FSBackedObject):
         else:
             self._data = self._get_empty_structure()
         self._current = copy.deepcopy(self._data)
+        self._changelog: List[Tuple[str, int, Any]] = []
 
     def get(self, idx: int, old: bool = False) -> Any:
         if old:
@@ -108,6 +108,7 @@ class FSListObject(FSBackedObject):
 class FSDictObject(FSBackedObject):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._changelog: List[Tuple[str, Any, Any]] = []
 
     def _get_data_path(self) -> Path:
         return self.save_path / "data.pkl"
@@ -175,3 +176,82 @@ class FSDictObject(FSBackedObject):
 
     def __getitem__(self, key: Any):
         return self._current[key]
+
+
+class FSJsonDictObject(FSBackedObject):
+    class _SpecialValues(Enum):
+        NON_EXISTENT = 0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def on_pipeline_start(self):
+        super().on_pipeline_start()
+        self._overlay: Dict[str, Any] = {}
+        self._underlay: Dict[str, Any] = {}
+
+    def save(self):
+        for key, value in self._overlay.items():
+            key_path = self._get_key_path(key)
+            if value == self._SpecialValues.NON_EXISTENT:
+                key_path.unlink(missing_ok=True)
+            else:
+                with key_path.open('w') as f:
+                    json.dump(value, f)
+        self._overlay.clear()
+        self._underlay.clear()
+
+    def changed(self) -> bool:
+        return len(self._overlay) > 0
+
+    def get(self, key: str, old: bool = False) -> Any:
+        self._validate_key(key)
+        if not old and key in self._overlay:
+            result = self._overlay[key]
+        else:
+            result = self._try_to_load(key)
+        if result == self._SpecialValues.NON_EXISTENT:
+            raise KeyError(key)
+        return result
+
+    def set(self, key: str, value: Any):
+        self._validate_key(key)
+        self._overlay[key] = value
+
+    def remove(self, key: str):
+        self._validate_key(key)
+        self._overlay[key] = self._SpecialValues.NON_EXISTENT
+
+    def keys(self) -> Iterable[str]:
+        overlay_keys = set(self._overlay.keys())
+        for file in self.save_path.iterdir():
+            key = file.name
+            if key not in overlay_keys:
+                yield key
+            else:
+                overlay_keys.remove(key)
+                if self._overlay[key] != self._SpecialValues.NON_EXISTENT:
+                    yield key
+        for key in overlay_keys:
+            yield key
+
+    def _validate_key(self, key: str):
+        if not isinstance(key, str):
+            raise ValueError("Key must be a string")
+        if not re.fullmatch(r"[a-zA-Z0-9_]+", key):
+            raise ValueError("Key must contain only English letters, numbers, and underscores")
+
+    def _try_to_load(self, key: str) -> Any:
+        if key in self._underlay:
+            return self._underlay[key]
+        try:
+            with open(self._get_key_path(key), 'r') as f:
+                val = json.load(f)
+            self._underlay[key] = val
+            return val
+        except FileNotFoundError:
+            self._underlay[key] = self._SpecialValues.NON_EXISTENT
+            return self._SpecialValues.NON_EXISTENT
+
+    def _get_key_path(self, key: str) -> Path:
+        return self.save_path / f"{key}"
