@@ -51,9 +51,6 @@ class FSListObject(FSBackedObject):
             self._data = self._get_empty_structure()
         self._current = copy.deepcopy(self._data)
 
-    def on_pipeline_end(self):
-        pass
-
     def get(self, idx: int, old: bool = False) -> Any:
         if old:
             return self._data[idx]
