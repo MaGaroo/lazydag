@@ -2,9 +2,10 @@ from pathlib import Path
 from typing import List, Dict
 import typer
 from lazydag.core.object import Object
+from lazydag.core.process import Process
 from lazydag.core.pipeline import Pipeline
 from lazydag.core.paths import get_pipeline_path
-from lazydag.cli.utils import get_object_by_name
+from lazydag.cli.utils import get_object_by_name, get_process_by_name
 
 
 topology_app = typer.Typer()
@@ -18,12 +19,18 @@ def add_process(ctx: typer.Context, process_name: str, inputs: List[str] = [], o
     pipeline.add_process(process_name, inputs, outputs)
     pipeline.to_yaml_file(get_pipeline_path())
 
+    process: Process = get_process_by_name(process_name)
+    process.on_add_to_pipeline()
+
 
 @topology_app.command()
 def remove_process(ctx: typer.Context, process_name: str):
     pipeline: Pipeline = ctx.obj["pipeline"]
     pipeline.remove_process(process_name)
     pipeline.to_yaml_file(get_pipeline_path())
+
+    process: Process = get_process_by_name(process_name)
+    process.on_remove_from_pipeline()
 
 
 @topology_app.command()
@@ -64,6 +71,10 @@ def from_yaml(ctx: typer.Context, yaml_addr: Path):
     for obj_name in pipeline.objects:
         obj = get_object_by_name(obj_name)
         obj.on_add_to_pipeline()
+
+    for proc_name in pipeline.processes:
+        proc = get_process_by_name(proc_name)
+        proc.on_add_to_pipeline()
 
 
 @topology_app.command()

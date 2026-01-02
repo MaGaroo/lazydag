@@ -19,8 +19,11 @@ class Scheduler:
     def start(self):
         for obj in self.objects.values():
             obj.on_pipeline_start()
+        for proc in self.processes.values():
+            proc.on_pipeline_start()
+
         self.start_daemons()
-        
+
         # Main Loop
         try:
             while True:
@@ -36,6 +39,10 @@ class Scheduler:
 
         for obj in self.objects.values():
             obj.on_pipeline_end()
+        for proc in self.processes.values():
+            proc.on_pipeline_end()
+
+        self.stop_daemons()
 
     def step(self):
         """
@@ -74,6 +81,11 @@ class Scheduler:
                 t = threading.Thread(target=proc.run_daemon, kwargs=kwargs, name=f"daemon-{name}", daemon=True)
                 t.start()
                 self.daemons.append(t)
+        return
+
+    def stop_daemons(self):
+        for t in self.daemons:
+            t.join()
         return
 
     def _assert_pipeline_consistent(self):

@@ -13,9 +13,15 @@ class RandomNumberGeneratorProcess(Process):
         super().__init__(name)
         self.queue = queue.Queue()
 
+    def on_pipeline_start(self):
+        self._run_daemon = True
+
+    def on_pipeline_end(self):
+        self._run_daemon = False
+
     def run_daemon(self, num_list: FSListObject):
         # Generate some numbers
-        while True:
+        while self._run_daemon:
             val = random.randint(1, 100)
             self.queue.put(val)
             time.sleep(0.5)
