@@ -1,38 +1,36 @@
 # LazyDAG
+LazyDAG is a (yet another) python framework to manage data processing pipelines.
 
-LazyDAG is a python framework that manages a pipeline for data processing.
-The focus is on incremental data processing and reactive execution.
-That means, if an input asset consists of multiple entries and one of them
-changes, the process can only recompute the changed entry.
-
-## Features
-- **ObjectCollection**: Managed data storage with incremental updates and filesystem persistence.
-- **Process**: Units of computation that react to changes in input collections.
-- **Lazy/Reactive Execution**: Processes run only when their inputs change.
-- **Daemons**: Background processes that continuously feed data into the pipeline.
+## Installation
+Just how you install any other package nowadays:
+```bash
+pip install lazydag
+```
 
 ## Usage
+Take a look at the [examples](examples) directory for a usage example.
 
-```python
-from lazydag.schematic import define_process, define_collection
-from lazydag.collections import ListObjectCollection
-from lazydag.core import Process
-from lazydag.scheduler import get_runtime
+## Documentation
+The best documentation is the source code itself.
+No but seriously, the source code is not stable yet and it doesn't make sense
+to put an effort in writing the documentation for it.
 
-# Define your collections
-oc1 = define_collection(ListObjectCollection, name="Numbers", save_path="./data/nums")
-oc2 = define_collection(ListObjectCollection, name="Results", save_path="./data/results")
+## FA(Philosophical)Q
+### Why yet another framework?
+I reviewed the existing tools, I didn't like them.
+I decided to come up with my own.
 
-# Define your processes
-class MyProcess(Process):
-    inputs = ["nums"]
-    outputs = ["results"]
-    def run(self, nums: ListObjectCollection, results: ListObjectCollection):
-        # ... logic ...
-        pass
+### Why not use X?
+Go ahead, use X.
 
-define_process(MyProcess, "my_proc", inputs={"nums": oc1}, outputs={"results": oc2})
-
-# Start the scheduler
-get_runtime().start()
-```
+### What's the story?
+I needed to run some experiments for my research projects.
+For the experiments, I needed to extract some information from some *entities*.
+Sometimes, those entities had minor changes.
+Sometimes, a small logic needed to change in my experiments' code.
+Sometimes, I needed to recalculate some things I had already done before.
+I don't like to wait for the whole pipeline to run again.
+That's it. I created this framework to overcome those issues.
+Maybe it will be useful for you.
+Maybe it will be overfit to my use case.
+But it's open source, so you can take a look and use it if you like it.

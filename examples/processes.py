@@ -83,9 +83,9 @@ class MapProcess(Process):
         ptr = 0
         for num in input_nums:
             if ptr < len(output_nums):
-                output_nums.set(ptr, num * 2)
+                output_nums.set(ptr, num // 2)
             else:
-                output_nums.push(num * 2)
+                output_nums.push(num // 2)
             ptr += 1
         while len(output_nums) > ptr:
             output_nums.remove(ptr)
